@@ -5,11 +5,7 @@
 var system = require('system'),
   webpage = require('webpage');
 
-var argv,
-  dims,
-  failure,
-  init,
-  next;
+var argv, failure;
 
 // Get the command line arguments.
 argv = system.args;
@@ -42,103 +38,91 @@ function newPage() {
 }
 
 // Do a first pass to detect the exact dimensions of the asciicast.
-init = newPage();
-init.viewportSize = {width: 9999, height: 9999};
-init.open(argv[1], function (status) {
-
+var page = newPage();
+page.viewportSize = {width: 4096, height: 2160};
+page.open(argv[1], function (status) {
+  console.log(">> Fetching: " + argv[1]);
   checkStatus(status);
-  dims = init.evaluate(function () {
-    var term = $('.asciinema-terminal');
-    return [term.width(), term.height()];
+
+  var diff,
+    frame = 1,
+    framerate = argv[2] ? parseInt(argv[2], 10) : 10,
+    interval = 1000 / framerate,
+    last = 0,
+    stop = false;
+
+  var bb = page.evaluate(function() {
+    return document.getElementsByClassName('asciinema-terminal')[0].getBoundingClientRect();
   });
+  page.clipRect = {
+    top: bb.top,
+    left: bb.left,
+    width: bb.width,
+    height: bb.height
+  };
+  
+  page.onCallback = function(running, progress) {
+    if(progress) {
+      console.log(">> Progress: " + progress);
+      return;
+    }
 
-  console.log(">> Dimensions: " + dims[0] + "x" + dims[1]);
+    if(running) {
+      console.log(">> Generating screenshots ...");
+      var now = Date.now();
+      setTimeout(function screenshot() {
+        if(stop) {
+          console.log(">> Done!");
+          phantom.exit(0);
+          return;
+        }
 
-  next = newPage();
-  next.viewportSize = {width: dims[0], height: dims[1]};
-  next.open(argv[1], function (status) {
+        page.render('frames/' + (("00000000" + frame++).substr(-8, 8)) + '.png', {format: 'png'});
+        now = Date.now();
+        if ((diff = (interval - now - last)) <= 0) {
+          setTimeout(screenshot, 0);
+        } else {
+          setTimeout(screenshot, diff);
+        }
+        last = now;
+      }, interval);
+    } else {
+      stop = true;
+    }
+  }
 
-    var diff,
-      frame = 1,
-      framerate = argv[2] ? parseInt(argv[2], 10) : 10,
-      interval = 1000 / framerate,
-      last = 0,
-      stop = false;
+  console.log(">> Preparing window ...");
+  page.evaluate(function() {
+    var fetch = asciinema.HttpArraySource.prototype.fetchData;
+    asciinema.HttpArraySource.prototype.fetchData = function(setLoading, onResult) {
+      fetch.call(this, setLoading, function() {
+        onResult();
+        callPhantom(true);
 
-    checkStatus(status);
+        var prev = "";
+        var sameCount = 0;
 
-    next.onCallback = function (running, progress) {
-      if (progress !== undefined) {
-        console.log(">> Progress: " + progress);
-        return;
-      }
-      if (running) {
-        console.log(">> Generating screenshots ...");
-        var now = Date.now();
-        setTimeout(function screenshot() {
-          if (stop) {
-            console.log(">> Done!");
-            phantom.exit(0);
-            return;
-          }
-          next.render('frames/' + (("00000000" + frame++).substr(-8, 8)) + '.png', {format: 'png'});
-          now = Date.now();
-          if ((diff = (interval - now - last)) <= 0) {
-            setTimeout(screenshot, 0);
+        setTimeout(function checkProgress() {
+          var width = $('.gutter')[0].children[0].style.width;
+          if (width === prev) {
+            sameCount += 1;
+            if (sameCount === 3) {
+              callPhantom(false);
+              return;
+            }
           } else {
-            setTimeout(screenshot, diff);
+            callPhantom(true, width);
+            sameCount = 0;
           }
-          last = now;
-        }, interval);
-      } else {
-        stop = true;
-      }
+          prev = width;
+          setTimeout(checkProgress, 100);
+        }, 0);
+      });
     };
 
-    console.log(">> Preparing window ...");
-    next.evaluate(function () {
-      var fetch, ev, el;
-      // Hide the control bar and the powered by paragraph.
-      $('.control-bar').hide();
-      $('.powered').hide();
-      // Change the styling slightly.
-      $('<style>.asciinema-player-wrapper{text-align: left}</style>').appendTo(document.body);
-      // Intercept the data load.
-      fetch = asciinema.HttpArraySource.prototype.fetchData;
-      asciinema.HttpArraySource.prototype.fetchData = function (setLoading, onResult) {
-        fetch.call(this, setLoading, function () {
-          // Initialise the player.
-          onResult();
-          // Start the screenshots.
-          callPhantom(true);
-          // Check if the player has finished.
-          var prev = "",
-            sameCount = 0;
-          setTimeout(function checkProgress() {
-            var width = $('.gutter')[0].children[0].style.width;
-            if (width === prev) {
-              sameCount += 1;
-              if (sameCount === 3) {
-                callPhantom(false);
-                return;
-              }
-            } else {
-              callPhantom(true, width);
-              sameCount = 0;
-            }
-            prev = width;
-            setTimeout(checkProgress, 100);
-          }, 0);
-        });
-      };
-      // Synthesise the click for playing the video.
-      el = $('.start-prompt')[0];
-      ev = document.createEvent('Events');
-      ev.initEvent('click', true, false);
-      // ev = new CustomEvent('click', {bubbles: true});
-      el.dispatchEvent(ev);
-    });
-
+    var el = $('.start-prompt')[0];
+    var ev = document.createEvent('Events');
+    ev.initEvent('click', true, false);
+    el.dispatchEvent(ev);
   });
-
 });

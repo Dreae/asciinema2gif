@@ -21,5 +21,6 @@ rundir=$PWD
   echo '>> Generating GIF ...'
   convert -delay 5 -loop 0 frames/*.png gif:- | gifsicle --colors=256 --delay=6 --optimize=3 > asciicast.gif
 
-  echo ">> Generated: ${PWD}/asciicast.gif"
+  cp "${PWD}/asciicast.gif" "$rundir"
+  echo ">> Generated: asciicast.gif"
 )
