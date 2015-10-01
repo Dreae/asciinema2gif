@@ -2,7 +2,7 @@
 
 Generate animated GIFs from [asciinema terminal recordings].
 
-![Demo](http://tav.espians.com/asciinema/demo.gif)
+![Demo](asciicast.gif)
 
 ### Motivation
 
